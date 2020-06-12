@@ -47,13 +47,15 @@ if __name__ == '__main__':
 		try:
 			client.create_socket()
 			client.connect_socket()
-
 			print("Type message, enter to send, 'q' to quit")
-			msg = input()
+			msg = ''
+			while not msg:
+				msg = input()
 			if msg == 'q':
 				break
 
 			client.send_msg(msg)
+			client.recv_msg()
 
 		except ConnectionError:
 			print('Socket error')
