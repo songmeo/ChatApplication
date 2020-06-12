@@ -1,16 +1,20 @@
 import sys, socket
 
 class Client(object):
-	def __init__(self, host, port, sock):
+
+	def __init__(self, host, port):
 		self.HOST = host
 		self.PORT = port
-		self.SOCK = sock
+		self.SOCK = ''
+
+	def create_socket(self):
+		self.SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 	def recv_msg(self):
 		data = bytearray()
 		msg = ''
 		while not msg:
-			recvd = SOCK.recv(4096)
+			recvd = self.SOCK.recv(4096)
 			if not recvd:
 				raise ConnectionError()
 			data = data + recvd
@@ -22,26 +26,26 @@ class Client(object):
 	def send_msg(self, msg):
 		msg += '\0'
 		data = msg.encode('utf-8')
-		SOCK.sendall(data)
+		self.SOCK.sendall(data)
 		print('Sent msg: {}'.format(msg))
 
 	def connect_socket(self):
-		SOCK.connect((HOST, PORT))
+		self.SOCK.connect((HOST, PORT))
 		print('\nConnected to {}:{}'.format(HOST, PORT))
 
 	def close_socket(self):
-		SOCK.close()
+		self.SOCK.close()
 		print('Closed connection to server\n')
 
 if __name__ == '__main__':
 
 	HOST = sys.argv[-1] if len(sys.argv) > 1 else '127.0.0.1'
 	PORT = 4040
-	SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	client = Client(HOST, PORT, SOCK)
+	client = Client(HOST, PORT)
 
 	while True:
 		try:
+			client.create_socket()
 			client.connect_socket()
 
 			print("Type message, enter to send, 'q' to quit")

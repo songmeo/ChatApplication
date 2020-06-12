@@ -52,7 +52,7 @@ if __name__ == '__main__':
 	print('Listening on {}'.format(addr))
 
 	while True:
-		client_sock, client_addr = server.SOCK.accept()
+		client_sock, client_addr = SOCK.accept()
 		print('Connection from {}'.format(client_addr))
 		server.handle_client(client_sock, client_addr)
 
