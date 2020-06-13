@@ -1,4 +1,4 @@
-import socket
+import threading, socket
 
 class Server(object):
 	def __init__(self, host, port):
@@ -52,6 +52,11 @@ if __name__ == '__main__':
 
 	while True:
 		client_sock, client_addr = server.SOCK.accept()
+
+		thread = threading.Thread(target=server.handle_client,
+					args=[client_sock, client_addr],
+					daemon=True) #daemon is for exiting without having to close other threads first
+		thread.start()
+
 		print('\nConnection from {}'.format(client_addr))
-		server.handle_client(client_sock, client_addr)
 
