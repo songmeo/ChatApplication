@@ -1,4 +1,4 @@
-import sys, socket
+import sys, socket, threading
 
 class Client(object):
 
@@ -10,18 +10,36 @@ class Client(object):
 	def create_socket(self):
 		self.SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-	def recv_msg(self):
+	def handle_input(self):
+		print("Type messages:")
+		while True:
+			msg = input()
+			if msg == 'q':
+				self.sock.shutdown(socket.SHUT_RDWR)
+				self.sock.close()
+				break
+			try:
+				self.send_msg(msg)
+			except (BrokenPipeError, ConnectionError):
+				break
+
+	def parse_recvd_data(self, data):
+		parts = data.split(b'\0')
+		msg = parts[:-1]
+		rest = parts[-1]
+		return (msg, rest)
+
+	def recv_msgs(self, data=bytes()):
 		data = bytearray()
-		msg = ''
-		while not msg:
+		msgs = []
+		while not msgs:
 			recvd = self.SOCK.recv(4096)
 			if not recvd:
 				raise ConnectionError()
 			data = data + recvd
-			if b'\0' in recvd:
-				msg = data.rstrip(b'\0')
-		msg = msg.decode('utf-8')
-		print('Received echo: ' + msg)
+			(msgs, rest) = self.parse_recvd_data(data)
+		msg = [msg.decode('utf-8') for msg in msgs]
+		return (msgs, rest)
 
 	def send_msg(self, msg):
 		msg += '\0'
@@ -43,23 +61,19 @@ if __name__ == '__main__':
 	PORT = 4040
 	client = Client(HOST, PORT)
 
+	client.create_socket()
+	client.connect_socket()
+	thread = threading.Thread(target=client.handle_input,
+				daemon=True)
+	thread.start()
+	rest = bytes()
+	addr = client.SOCK.getsockname()
 	while True:
 		try:
-			client.create_socket()
-			client.connect_socket()
-			print("Type message, enter to send, 'q' to quit")
-			msg = ''
-			while not msg:
-				msg = input()
-			if msg == 'q':
-				break
-
-			client.send_msg(msg)
-			client.recv_msg()
-
+			(msgs, rest) = client.recv_msgs()
+			for msg in msgs:
+				print(msg)
 		except ConnectionError:
 			print('Socket error')
+			client.SOCK.close()
 			break
-
-		finally:
-			client.close_socket()

@@ -14,7 +14,7 @@ class Server(object):
 		self.SOCK.bind((self.HOST, self.PORT))
 		self.SOCK.listen(100)
 
-	def parse_recvd_data(data):
+	def parse_recvd_data(self, data):
 		parts = data.split(b'\0')
 		msgs = parts[:-1]
 		rest = parts[-1]
@@ -43,14 +43,13 @@ class Server(object):
 		while True:
 			try:
 				(msgs, rest) = self.recv_msgs(client_sock, rest)
-				self.send_msg(client_sock, msg)
 			except (ConnectionError, EOFError):
-				handle_disconnect(client_sock, client_addr)
+				self.handle_disconnect(client_sock, client_addr)
 				break
 			for msg in msgs:
 				msg = '{}: {}'.format(client_addr, msg)
 				print(msg)
-				broadcast_msg(msg)
+				self.broadcast_msg(msg)
 
 	def handle_client_send(self, sock, q, addr):
 		while True:
@@ -59,17 +58,17 @@ class Server(object):
 			try:
 				self.send_msg(sock, msg)
 			except (ConnectionError, BrokenPipe):
-				handle_disconnect(sock, addr)
+				self.handle_disconnect(sock, addr)
 				break
 
-	def broadcast_msg(msg):
-		with lock:
+	def broadcast_msg(self, msg):
+		with self.lock:
 			for q in self.send_queues.values():
 				q.put(msg)
 
-	def handle_disconnect(sock, addr):
+	def handle_disconnect(self, sock, addr):
 		fd = sock.fileno()
-		with lock:
+		with self.lock:
 			q = self.send_queues.get(fd, None)
 		if q:
 			q.put(None)
@@ -89,11 +88,17 @@ if __name__ == '__main__':
 
 	while True:
 		client_sock, client_addr = server.SOCK.accept()
-
-		thread = threading.Thread(target=server.handle_client,
+		q = queue.Queue()
+		with server.lock:
+			server.send_queues[client_sock.fileno()] = q
+		recv_thread = threading.Thread(target=server.handle_client_recv,
 					args=[client_sock, client_addr],
 					daemon=True) #daemon is for exiting without having to close other threads first
-		thread.start()
+		send_thread = threading.Thread(target=server.handle_client_send,
+					args=[client_sock, q, addr],
+					daemon=True)
+		recv_thread.start()
+		send_thread.start()
 
 		print('\nConnection from {}'.format(client_addr))
 
