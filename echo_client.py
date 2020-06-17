@@ -38,7 +38,7 @@ class Client(object):
 				raise ConnectionError()
 			data = data + recvd
 			(msgs, rest) = self.parse_recvd_data(data)
-		msg = [msg.decode('utf-8') for msg in msgs]
+		msgs = [msg.decode('utf-8') for msg in msgs]
 		return (msgs, rest)
 
 	def send_msg(self, msg):
