@@ -13,11 +13,11 @@ class Server:
 		return SimpleNamespace(
 				sock=sock,
 				rest=bytes(),
-				send_queue=sdeque())
+				send_queue=deque())
 
 	def broadcast_msg(self, msg):
 		data = lib.prep_msg(msg)
-		for client in clients.values():
+		for client in self.clients.values():
 			client.send_queue.append(data)
 			poll.register(client.sock, select.POLLOUT)
 
@@ -38,7 +38,13 @@ if __name__ == '__main__':
 					select.POLLNVAL) :
 				poll.unregister(fd)
 				del s.clients[fd]
-
+			elif fd == listen_sock.fileno():
+				client_sock, addr = listen_sock.accept()
+				client_sock.setblocking(False)
+				fd = client_sock.fileno()
+				s.clients[fd] = s.create_client(client_sock)
+				poll.register(fd, select.POLLIN)
+				print('Connection from {}'.format(addr))
 			elif event & select.POLLIN:
 				client = s.clients[fd]
 				addr = client.sock.getpeername()
@@ -52,7 +58,7 @@ if __name__ == '__main__':
 				for msg in msgs:
 					msg = '{}: {}'.format(addr, msg)
 					print(msg)
-					broadcast_msg(msg)
+					s.broadcast_msg(msg)
 
 			elif event & select.POLLOUT:
 				client = s.clients[fd]
