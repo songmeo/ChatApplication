@@ -1,10 +1,9 @@
-import eventlet
-import eventlet.queue as queue
 import lib
+import threading, socket, queue
 
 class Server(object):
 	send_queues = {}
-	#lock = threading.Lock()
+	lock = threading.Lock()
 
 	def __init__(self, host, port):
 		self.HOST = host
@@ -34,12 +33,14 @@ class Server(object):
 				break
 
 	def broadcast_msg(self, msg):
-		for q in self.send_queues.values():
-			q.put(msg)
+		with self.lock:
+			for q in self.send_queues.values():
+				q.put(msg)
 
 	def handle_disconnect(self, sock, addr):
 		fd = sock.fileno()
-		q = self.send_queues.get(fd, None)
+		with self.lock:
+			q = self.send_queues.get(fd, None)
 		if q:
 			q.put(None)
 			del self.send_queues[fd]
@@ -51,20 +52,24 @@ if __name__ == '__main__':
 	HOST =  '' #listening on all interfaces
 	PORT = 4040
 
-	server = Server(HOST, PORT)
-	server.SOCK = eventlet.listen((HOST,PORT))
+	server = Server(HOST,PORT)
+	server.SOCK = lib.create_listen_socket(HOST, PORT)
 	addr = server.SOCK.getsockname()
 	print('Listening on {}'.format(addr))
 
 	while True:
-		client_sock,addr = server.SOCK.accept()
+		client_sock, client_addr = server.SOCK.accept()
 		q = queue.Queue()
-		server.send_queues[client_sock.fileno()] = q
-		eventlet.spawn_n(server.handle_client_recv,
-				client_sock,
-				addr)
-		eventlet.spawn_n(server.handle_client_send,
-				client_sock,
-				q,
-				addr)
-		print('Connection from {}'.format(addr))
+		with server.lock:
+			server.send_queues[client_sock.fileno()] = q
+		recv_thread = threading.Thread(target=server.handle_client_recv,
+					args=[client_sock, client_addr],
+					daemon=True) #daemon is for exiting without having to close other threads first
+		send_thread = threading.Thread(target=server.handle_client_send,
+					args=[client_sock, q, addr],
+					daemon=True)
+		recv_thread.start()
+		send_thread.start()
+
+		print('\nConnection from {}'.format(client_addr))
+
