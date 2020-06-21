@@ -1,75 +1,71 @@
+import select
 import lib
-import threading, socket, queue
+from types import SimpleNamespace
+from collections import deque
 
-class Server(object):
-	send_queues = {}
-	lock = threading.Lock()
-
+class Server:
 	def __init__(self, host, port):
 		self.HOST = host
 		self.PORT = port
+		self.clients = {}
 
-	def handle_client_recv(self, client_sock, client_addr):
-		rest = bytes()
-		while True:
-			try:
-				(msgs, rest) = lib.recv_msgs(client_sock, rest)
-			except (ConnectionError, EOFError):
-				self.handle_disconnect(client_sock, client_addr)
-				break
-			for msg in msgs:
-				msg = '{}: {}'.format(client_addr, msg)
-				print(msg)
-				self.broadcast_msg(msg)
-
-	def handle_client_send(self, sock, q, addr):
-		while True:
-			msg = q.get()
-			if msg == None: break
-			try:
-				lib.send_msg(sock, msg)
-			except (ConnectionError, BrokenPipe):
-				self.handle_disconnect(sock, addr)
-				break
+	def create_client(self, sock):
+		return SimpleNamespace(
+				sock=sock,
+				rest=bytes(),
+				send_queue=deque())
 
 	def broadcast_msg(self, msg):
-		with self.lock:
-			for q in self.send_queues.values():
-				q.put(msg)
-
-	def handle_disconnect(self, sock, addr):
-		fd = sock.fileno()
-		with self.lock:
-			q = self.send_queues.get(fd, None)
-		if q:
-			q.put(None)
-			del self.send_queues[fd]
-			addr = sock.getpeername()
-			print('Client {} disconnected'.format(addr))
-			sock.close()
+		data = lib.prep_msg(msg)
+		for client in self.clients.values():
+			client.send_queue.append(data)
+			poll.register(client.sock, select.POLLOUT)
 
 if __name__ == '__main__':
-	HOST =  '' #listening on all interfaces
+	HOST = ''
 	PORT = 4040
-
-	server = Server(HOST,PORT)
-	server.SOCK = lib.create_listen_socket(HOST, PORT)
-	addr = server.SOCK.getsockname()
+	s = Server(HOST, PORT)
+	listen_sock = lib.create_listen_socket(HOST, PORT)
+	poll = select.poll()
+	poll.register(listen_sock, select.POLLIN)
+	addr = listen_sock.getsockname()
 	print('Listening on {}'.format(addr))
 
 	while True:
-		client_sock, client_addr = server.SOCK.accept()
-		q = queue.Queue()
-		with server.lock:
-			server.send_queues[client_sock.fileno()] = q
-		recv_thread = threading.Thread(target=server.handle_client_recv,
-					args=[client_sock, client_addr],
-					daemon=True) #daemon is for exiting without having to close other threads first
-		send_thread = threading.Thread(target=server.handle_client_send,
-					args=[client_sock, q, addr],
-					daemon=True)
-		recv_thread.start()
-		send_thread.start()
+		for fd, event in poll.poll():
+			if event & (select.POLLHUP |
+					select.POLLERR |
+					select.POLLNVAL) :
+				poll.unregister(fd)
+				del s.clients[fd]
 
-		print('\nConnection from {}'.format(client_addr))
+			elif fd == listen_sock.fileno():
+				client_sock, addr = listen_sock.accept()
+				client_sock.setblocking(False)
+				fd = client_sock.fileno()
+				s.clients[fd] = s.create_client(client_sock)
+				poll.register(fd, select.POLLIN)
+				print('Connection from {}'.format(addr))
+			elif event & select.POLLIN:
+				client = s.clients[fd]
+				addr = client.sock.getpeername()
+				recvd = client.sock.recv(4096)
+				if not recvd:
+					client.sock.close()
+					print('Client {} disconnected'.format(addr))
+					continue
+				data = client.rest + recvd
+				(msgs, client.rest) = lib.parse_recvd_data(data)
+				for msg in msgs:
+					msg = '{}: {}'.format(addr, msg)
+					print(msg)
+					s.broadcast_msg(msg)
 
+			elif event & select.POLLOUT:
+				client = s.clients[fd]
+				data = client.send_queue.popleft()
+				sent = client.sock.send(data)
+				if sent < len(data):
+					client.sends.appendleft(data[sent:])
+				if not client.send_queue:
+					poll.modify(client_sock, select.POLLIN)
