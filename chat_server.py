@@ -9,10 +9,11 @@ class Server:
 		self.PORT = port
 		self.clients = {}
 
-	def create_client(self, sock):
+	def create_client(self, sock, usr):
 		return SimpleNamespace(
 				sock=sock,
 				rest=bytes(),
+				username = usr,
 				send_queue=deque())
 
 	def broadcast_msg(self, msg):
@@ -33,20 +34,28 @@ if __name__ == '__main__':
 
 	while True:
 		for fd, event in poll.poll():
+
 			# clear up closed socket
 			if event & (select.POLLHUP |
 					select.POLLERR |
 					select.POLLNVAL) :
 				poll.unregister(fd)
 				del s.clients[fd]
+
 			# accept new connection, add clients to server client dict
 			elif fd == listen_sock.fileno():
 				client_sock, addr = listen_sock.accept()
-				client_sock.setblocking(False)
 				fd = client_sock.fileno()
-				s.clients[fd] = s.create_client(client_sock)
+
+				# get username
+				lib.send_msg(client_sock, "Welcome! Please type username: ")
+				username = client_sock.recv(4096)
+				client_sock.setblocking(False)
+
+				s.clients[fd] = s.create_client(client_sock, username)
 				poll.register(fd, select.POLLIN)
 				print('Connection from {}'.format(addr))
+
 			# handle received data on socket
 			elif event & select.POLLIN:
 				client = s.clients[fd]
@@ -62,6 +71,7 @@ if __name__ == '__main__':
 					msg = '{}: {}'.format(addr, msg.decode())
 					print(msg)
 					s.broadcast_msg(msg)
+
 			# send msg to client
 			elif event & select.POLLOUT:
 				client = s.clients[fd]

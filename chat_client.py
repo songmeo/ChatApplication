@@ -10,9 +10,8 @@ class Client(object):
 		self.SOCK.connect((host,port))
 
 	def handle_input(self):
-		print("Type messages:")
 		while True:
-			msg = input()
+			msg = input("> ")
 			if msg == 'q':
 				self.SOCK.shutdown(socket.SHUT_RDWR)
 				self.SOCK.close()
