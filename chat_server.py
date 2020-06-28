@@ -49,7 +49,9 @@ if __name__ == '__main__':
 
 				# get username
 				lib.send_msg(client_sock, "Welcome! Please type username: ")
-				username = client_sock.recv(4096)
+				username = client_sock.recv(4096).decode().rstrip('\x00')
+				welcome_msg = "Hi there {}! You can start chatting.".format(username)
+				lib.send_msg(client_sock, welcome_msg)
 				client_sock.setblocking(False)
 
 				s.clients[fd] = s.create_client(client_sock, username)
