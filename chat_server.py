@@ -8,6 +8,7 @@ class Server:
 		self.HOST = host
 		self.PORT = port
 		self.clients = {}
+		self.usernames = set()
 
 	def create_client(self, sock, usr):
 		return SimpleNamespace(
@@ -15,6 +16,20 @@ class Server:
 				rest=bytes(),
 				username = usr,
 				send_queue=deque())
+
+	def add_username(self, client_sock):
+		lib.send_msg(client_sock, "Welcome! Please type username: ")
+		exist = True
+		while exist:
+			username = client_sock.recv(4096).decode().rstrip('\x00')
+			prev_len = len(self.usernames)
+			self.usernames.add(username)
+			if prev_len == len(self.usernames):
+				lib.send_msg(client_sock, "Oops username exists. Please choose a different one: ")
+				exist = True
+			else:
+				exist = False
+		return username
 
 	def broadcast_msg(self, msg):
 		data = lib.prep_msg(msg)
@@ -47,15 +62,13 @@ if __name__ == '__main__':
 				client_sock, addr = listen_sock.accept()
 				fd = client_sock.fileno()
 
-				# get username
-				lib.send_msg(client_sock, "Welcome! Please type username: ")
-				username = client_sock.recv(4096).decode().rstrip('\x00')
-				welcome_msg = "Hi there {}! You can start chatting.".format(username)
-				lib.send_msg(client_sock, welcome_msg)
-				client_sock.setblocking(False)
+				username = s.add_username(client_sock)
 
 				s.clients[fd] = s.create_client(client_sock, username)
 				poll.register(fd, select.POLLIN)
+
+				welcome_msg = "{} joined the chat!".format(username)
+				s.broadcast_msg(welcome_msg)
 				print('Connection from {}'.format(addr))
 
 			# handle received data on socket
@@ -70,7 +83,7 @@ if __name__ == '__main__':
 				data = client.rest + recvd
 				(msgs, client.rest) = lib.parse_recvd_data(data)
 				for msg in msgs:
-					msg = '{}: {}'.format(addr, msg.decode())
+					msg = '{}: {}'.format(client.username, msg.decode())
 					print(msg)
 					s.broadcast_msg(msg)
 
