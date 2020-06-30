@@ -11,7 +11,7 @@ class Client(object):
 
 	def handle_input(self):
 		while True:
-			msg = input("> ")
+			msg = input()
 			if msg == 'q':
 				self.SOCK.shutdown(socket.SHUT_RDWR)
 				self.SOCK.close()
@@ -21,11 +21,17 @@ class Client(object):
 			except (BrokenPipeError, ConnectionError):
 				break
 
-if __name__ == '__main__':
-
-	HOST = sys.argv[-1] if len(sys.argv) > 1 else '127.0.0.1'
-	PORT = 4040
-	client = Client(HOST, PORT)
+def main():
+	#HOST = sys.argv[-1] if len(sys.argv) > 1 else '127.0.0.1'
+	try:
+		host = sys.argv[1].split(":")[0]
+	except:
+		host = input("Host: ")
+	try:
+		port = int(sys.argv[1].split(":")[1])
+	except:
+		port = int(input("Port: "))
+	client = Client(host, port)
 
 	thread = threading.Thread(target=client.handle_input,
 				daemon=True)
@@ -41,3 +47,6 @@ if __name__ == '__main__':
 			print('Socket error')
 			client.SOCK.close()
 			break
+
+if __name__ == '__main__':
+	main()
