@@ -7,10 +7,7 @@ from collections import deque
 class Server:
 	def __init__(self, host = '', port = 4040):
 		self.chatrooms = {
-			"default": {
-				"connections": [], #client socks
-				"users": [] #usernames
-			}
+			"default": [] #list of clients
 		}
 		self.HOST = host
 		self.PORT = port
@@ -22,10 +19,6 @@ class Server:
 		self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		self.sock.bind((self.HOST, self.PORT))
 		self.sock.listen(100)
-
-		#add server to default connections
-		self.chatrooms["default"]["connections"].append(self.sock)
-		self.chatrooms["default"]["users"].append("<server>")
 
 		self.poll = select.poll()
 		self.poll.register(self.sock, select.POLLIN)
@@ -49,15 +42,14 @@ class Server:
 
 					username = self.add_username(client_sock)
 
-					self.clients[fd] = self.create_client(client_sock, username)
+					client = self.create_client(client_sock, username)
+					self.clients[fd] = client
 					self.poll.register(fd, select.POLLIN)
 
 					#send list of chatrooms to new client
 					chatrooms = ""
 					for room in self.chatrooms.keys():
-						members = len(self.chatrooms[room]["connections"])
-						if room == "default":
-							members -= 1
+						members = len(self.chatrooms[room])
 						chatrooms += room + " <{}>::".format(members)
 					chatrooms = chatrooms[:-2]
 					lib.send_msg(client_sock, chatrooms)
@@ -67,15 +59,12 @@ class Server:
 					#client sends back the chatroom he wants to join
 					chatroom = client_sock.recv(32).decode().rstrip('\x00')
 					if chatroom not in self.chatrooms.keys():
-						self.chatrooms[chatroom] = {
-							"connections": [],
-							"users": []
-						}
-					self.chatrooms[chatroom]["connections"].append(fd)
-					self.chatrooms[chatroom]["users"].append(username)
+						self.chatrooms[chatroom] = []
+					client.room = chatroom
+					self.chatrooms[chatroom].append(client)
 
 					welcome_msg = "{} joined {}!".format(username, chatroom)
-					self.broadcast_msg(welcome_msg)
+					self.broadcast_msg(welcome_msg, self.chatrooms[client.room])
 					print('Connection from {}'.format(addr))
 
 				# handle received data on socket
@@ -92,7 +81,7 @@ class Server:
 					for msg in msgs:
 						msg = '{}: {}'.format(client.username, msg.decode())
 						print(msg)
-						self.broadcast_msg(msg)
+						self.broadcast_msg(msg, self.chatrooms[client.room])
 
 				# send msg to client
 				elif event & select.POLLOUT:
@@ -109,6 +98,7 @@ class Server:
 				sock=sock,
 				rest=bytes(),
 				username = usr,
+				room = "default",
 				send_queue=deque())
 
 	def add_username(self, client_sock):
@@ -123,9 +113,11 @@ class Server:
 				exist = False
 		return username
 
-	def broadcast_msg(self, msg):
+	def broadcast_msg(self, msg, receivers = []):
 		data = lib.prep_msg(msg)
-		for client in self.clients.values():
+		if not receivers:
+			receivers = self.clients.values()
+		for client in receivers:
 			client.send_queue.append(data)
 			self.poll.register(client.sock, select.POLLOUT)
 
